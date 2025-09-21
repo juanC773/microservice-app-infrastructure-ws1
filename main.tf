@@ -21,8 +21,6 @@ resource "azurerm_container_app_environment" "microservices-env" {
   location                   = azurerm_resource_group.microservice-app-rg.location
   resource_group_name        = azurerm_resource_group.microservice-app-rg.name
   log_analytics_workspace_id = azurerm_log_analytics_workspace.microservice-app-law.id
-
-  depends_on = [azurerm_resource_provider_registration.container_app]
 }
 
 resource "azurerm_container_app" "users-app" {
@@ -37,12 +35,29 @@ resource "azurerm_container_app" "users-app" {
       image  = "torres05/users-api-ws1:latest"
       cpu    = 0.25
       memory = "0.5Gi"
+
+      env {
+        name  = "SERVER_PORT"
+        value = "8083"
+      }
+
+      env {
+        name = "JWT_SECRET"
+        #secret_name = "jwt-secret"
+        value = "PRFT"
+      }
     }
   }
+
+  #  secret {
+  #    name  = "jwt-secret"
+  #    value = var.jwt_secret
+  #  }
 
   ingress {
     external_enabled = true
     target_port      = 8083
+    transport        = "http"
 
     traffic_weight {
       percentage      = 100
@@ -65,12 +80,31 @@ resource "azurerm_container_app" "auth-app" {
       image  = "torres05/auth-api-ws1:latest"
       cpu    = 0.25
       memory = "0.5Gi"
+
+      env {
+        name  = "SERVER_PORT"
+        value = "80"
+      }
+
+      env {
+        name = "JWT_SECRET"
+        #secret_name = "jwt-secret"
+        value = "PRFT"
+      }
+
+      env {
+        name  = "USERS_API_ADDRESS"
+        value = "https://${azurerm_container_app.users-app.ingress[0].fqdn}"
+      }
     }
   }
 
+  #  secret {}
+
   ingress {
     external_enabled = true
-    target_port      = 8000
+    target_port      = 80
+    transport        = "http"
 
     traffic_weight {
       percentage      = 100
