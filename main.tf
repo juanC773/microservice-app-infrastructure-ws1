@@ -37,12 +37,6 @@ resource "azurerm_container_app" "redis-app" {
       memory = "0.5Gi"
     }
   }
-
-  ingress {
-    external_enabled = false
-    target_port      = 6379
-    transport        = "tcp"
-  }
 }
 
 resource "azurerm_container_app" "users-app" {
@@ -137,7 +131,7 @@ resource "azurerm_container_app" "todos-app" {
   template {
     container {
       name   = "todos-app-container"
-      image  = "torres05/todos-api-ws1:latest"
+      image  = "juanc7773/todos-api-ws1:latest"
       cpu    = 0.25
       memory = "0.5Gi"
 
@@ -153,7 +147,7 @@ resource "azurerm_container_app" "todos-app" {
 
       env {
         name  = "REDIS_HOST"
-        value = "${azurerm_container_app.redis-app.ingress[0].fqdn}"
+        value = "redis-app"
       }
 
       env {
@@ -179,8 +173,6 @@ resource "azurerm_container_app" "todos-app" {
     }
   }
 }
-
-
 
 resource "azurerm_container_app" "frontend-app" {
   name                         = "frontend-app"

@@ -17,8 +17,3 @@ output "frontend_app_url" {
   description = "URL del frontend"
   value       = "https://${azurerm_container_app.frontend-app.ingress[0].fqdn}"
 }
-
-output "redis_internal_url" {
-  description = "URL interna de Redis"
-  value       = azurerm_container_app.redis-app.ingress[0].fqdn
-}
