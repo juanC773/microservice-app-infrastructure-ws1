@@ -9,3 +9,5 @@ variable "jwt_secret" {
   sensitive   = true
   default     = "PRFT"
 }
+
+
