@@ -23,6 +23,28 @@ resource "azurerm_container_app_environment" "microservices-env" {
   log_analytics_workspace_id = azurerm_log_analytics_workspace.microservice-app-law.id
 }
 
+resource "azurerm_container_app" "redis-app" {
+  name                         = "redis-app"
+  container_app_environment_id = azurerm_container_app_environment.microservices-env.id
+  resource_group_name          = azurerm_resource_group.microservice-app-rg.name
+  revision_mode                = "Single"
+
+  template {
+    container {
+      name   = "redis-container"
+      image  = "redis:7.0"
+      cpu    = 0.25
+      memory = "0.5Gi"
+    }
+  }
+
+  ingress {
+    external_enabled = false
+    target_port      = 6379
+    transport        = "tcp"
+  }
+}
+
 resource "azurerm_container_app" "users-app" {
   name                         = "users-app"
   container_app_environment_id = azurerm_container_app_environment.microservices-env.id
@@ -43,16 +65,10 @@ resource "azurerm_container_app" "users-app" {
 
       env {
         name = "JWT_SECRET"
-        #secret_name = "jwt-secret"
         value = "PRFT"
       }
     }
   }
-
-  #  secret {
-  #    name  = "jwt-secret"
-  #    value = var.jwt_secret
-  #  }
 
   ingress {
     external_enabled = true
@@ -82,13 +98,12 @@ resource "azurerm_container_app" "auth-app" {
       memory = "0.5Gi"
 
       env {
-        name  = "SERVER_PORT"
-        value = "80"
+        name  = "AUTH_API_PORT"
+        value = "8000"
       }
 
       env {
         name = "JWT_SECRET"
-        #secret_name = "jwt-secret"
         value = "PRFT"
       }
 
@@ -99,11 +114,63 @@ resource "azurerm_container_app" "auth-app" {
     }
   }
 
-  #  secret {}
+  ingress {
+    external_enabled = true
+    target_port      = 8000
+    transport        = "http"
+
+    traffic_weight {
+      percentage      = 100
+      latest_revision = true
+    }
+  }
+}
+
+resource "azurerm_container_app" "todos-app" {
+  name                         = "todos-app"
+  container_app_environment_id = azurerm_container_app_environment.microservices-env.id
+  resource_group_name          = azurerm_resource_group.microservice-app-rg.name
+  revision_mode                = "Single"
+
+  depends_on = [azurerm_container_app.redis-app]
+
+  template {
+    container {
+      name   = "todos-app-container"
+      image  = "torres05/todos-api-ws1:latest"
+      cpu    = 0.25
+      memory = "0.5Gi"
+
+      env {
+        name  = "TODO_API_PORT"
+        value = "8082"
+      }
+
+      env {
+        name  = "JWT_SECRET"
+        value = "PRFT"
+      }
+
+      env {
+        name  = "REDIS_HOST"
+        value = "${azurerm_container_app.redis-app.ingress[0].fqdn}"
+      }
+
+      env {
+        name  = "REDIS_PORT"
+        value = "6379"
+      }
+
+      env {
+        name  = "REDIS_CHANNEL"
+        value = "log_channel"
+      }
+    }
+  }
 
   ingress {
     external_enabled = true
-    target_port      = 80
+    target_port      = 8082
     transport        = "http"
 
     traffic_weight {
@@ -114,13 +181,14 @@ resource "azurerm_container_app" "auth-app" {
 }
 
 
+
 resource "azurerm_container_app" "frontend-app" {
   name                         = "frontend-app"
   container_app_environment_id = azurerm_container_app_environment.microservices-env.id
   resource_group_name          = azurerm_resource_group.microservice-app-rg.name
   revision_mode                = "Single"
 
-  depends_on = [azurerm_container_app.auth-app]
+  depends_on = [azurerm_container_app.auth-app, azurerm_container_app.todos-app]
 
   template {
     container {
@@ -132,6 +200,11 @@ resource "azurerm_container_app" "frontend-app" {
       env {
         name  = "AUTH_API_ADDRESS"
         value = "https://${azurerm_container_app.auth-app.ingress[0].fqdn}"
+      }
+
+      env {
+        name  = "TODOS_API_ADDRESS"
+        value = "https://${azurerm_container_app.todos-app.ingress[0].fqdn}"
       }
     }
   }
