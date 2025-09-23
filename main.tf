@@ -8,6 +8,29 @@ resource "azurerm_resource_group" "microservice-app-rg" {
   location = "West Europe"
 }
 
+resource "azurerm_virtual_network" "main-vnet" {
+  name                = "main-vnet"
+  address_space       = ["10.0.0.0/16"]
+  location            = azurerm_resource_group.microservice-app-rg.location
+  resource_group_name = azurerm_resource_group.microservice-app-rg.name
+}
+
+resource "azurerm_subnet" "micro-service-subnet" {
+  name                 = "micro-service-subnet"
+  resource_group_name  = azurerm_resource_group.microservice-app-rg.name
+  virtual_network_name = azurerm_virtual_network.main-vnet.name
+  address_prefixes     = ["10.0.1.0/24"]
+
+  delegation {
+    name = "Microsoft.App.enviroments"
+
+    service_delegation {
+      name    = "Microsoft.App/environments"
+      actions = ["Microsoft.Network/virtualNetworks/subnets/join/action"]
+    }
+  }
+}
+
 resource "azurerm_log_analytics_workspace" "microservice-app-law" {
   name                = "acctest-01"
   location            = azurerm_resource_group.microservice-app-rg.location
@@ -49,8 +72,8 @@ resource "azurerm_container_app" "users-app" {
     container {
       name   = "users-app-container"
       image  = "torres05/users-api-ws1:latest"
-      cpu    = 0.25
-      memory = "0.5Gi"
+      cpu    = 0.5
+      memory = "1.0Gi"
 
       env {
         name  = "SERVER_PORT"
@@ -58,7 +81,12 @@ resource "azurerm_container_app" "users-app" {
       }
 
       env {
-        name = "JWT_SECRET"
+        name  = "SERVER_ADDRESS"
+        value = "0.0.0.0"
+      }
+
+      env {
+        name  = "JWT_SECRET"
         value = "PRFT"
       }
     }
@@ -97,13 +125,13 @@ resource "azurerm_container_app" "auth-app" {
       }
 
       env {
-        name = "JWT_SECRET"
+        name  = "JWT_SECRET"
         value = "PRFT"
       }
 
       env {
         name  = "USERS_API_ADDRESS"
-        value = "https://${azurerm_container_app.users-app.ingress[0].fqdn}"
+        value = "http://users-app"
       }
     }
   }
@@ -191,12 +219,12 @@ resource "azurerm_container_app" "frontend-app" {
 
       env {
         name  = "AUTH_API_ADDRESS"
-        value = "https://${azurerm_container_app.auth-app.ingress[0].fqdn}"
+        value = "http://auth-app"
       }
 
       env {
         name  = "TODOS_API_ADDRESS"
-        value = "https://${azurerm_container_app.todos-app.ingress[0].fqdn}"
+        value = "http://todos-app"
       }
     }
   }

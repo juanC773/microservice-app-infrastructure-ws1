@@ -17,3 +17,8 @@ output "frontend_app_url" {
   description = "URL del frontend"
   value       = "https://${azurerm_container_app.frontend-app.ingress[0].fqdn}"
 }
+
+output "aut_app_url" {
+  description = "URL del auth"
+  value       = "https://${azurerm_container_app.auth-app.ingress[0].fqdn}"
+}
