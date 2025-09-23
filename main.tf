@@ -219,13 +219,14 @@ resource "azurerm_container_app" "frontend-app" {
 
       env {
         name  = "AUTH_API_ADDRESS"
-        value = "http://auth-app"
+        value = "https://auth-app.${azurerm_container_app_environment.microservices-env.default_domain}"
       }
 
       env {
         name  = "TODOS_API_ADDRESS"
-        value = "http://todos-app"
+        value = "https://todos-app.${azurerm_container_app_environment.microservices-env.default_domain}"
       }
+
     }
   }
 
