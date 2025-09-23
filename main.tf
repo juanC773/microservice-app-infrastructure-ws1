@@ -46,21 +46,6 @@ resource "azurerm_container_app_environment" "microservices-env" {
   log_analytics_workspace_id = azurerm_log_analytics_workspace.microservice-app-law.id
 }
 
-resource "azurerm_container_app" "redis-app" {
-  name                         = "redis-app"
-  container_app_environment_id = azurerm_container_app_environment.microservices-env.id
-  resource_group_name          = azurerm_resource_group.microservice-app-rg.name
-  revision_mode                = "Single"
-
-  template {
-    container {
-      name   = "redis-container"
-      image  = "redis:7.0"
-      cpu    = 0.25
-      memory = "0.5Gi"
-    }
-  }
-}
 
 resource "azurerm_container_app" "users-app" {
   name                         = "users-app"
