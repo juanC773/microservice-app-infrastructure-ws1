@@ -8,6 +8,13 @@ terraform.tfstate.backup
 # Local .terraform directories
 **/.terraform/*
 
+# Environment variables 
+.env
+
+# OS files
+.DS_Store
+Thumbs.db
+
 # .tfstate files
 *.tfstate
 *.tfstate.*

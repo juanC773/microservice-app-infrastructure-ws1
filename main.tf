@@ -1,8 +1,3 @@
-provider "azurerm" {
-  features {}
-  subscription_id = var.subscription_id
-}
-
 resource "azurerm_resource_group" "microservice-app-rg" {
   name     = "microservice-app-rg"
   location = "West Europe"
@@ -72,7 +67,7 @@ resource "azurerm_container_app" "users-app" {
 
       env {
         name  = "JWT_SECRET"
-        value = "PRFT"
+        value = var.jwt_secret
       }
     }
   }
@@ -111,7 +106,7 @@ resource "azurerm_container_app" "auth-app" {
 
       env {
         name  = "JWT_SECRET"
-        value = "PRFT"
+        value = var.jwt_secret
       }
 
       env {
@@ -138,8 +133,6 @@ resource "azurerm_container_app" "todos-app" {
   container_app_environment_id = azurerm_container_app_environment.microservices-env.id
   resource_group_name          = azurerm_resource_group.microservice-app-rg.name
   revision_mode                = "Single"
-
-  depends_on = [azurerm_container_app.redis-app]
 
   template {
     container {
