@@ -1,24 +1,29 @@
 output "users_app_url" {
   description = "URL del servicio de usuarios"
-  value       = "https://${azurerm_container_app.users-app.ingress[0].fqdn}"
+  value       = module.users_app.container_app_url
 }
 
 output "auth_app_url" {
   description = "URL del servicio de autenticación"
-  value       = "https://${azurerm_container_app.auth-app.ingress[0].fqdn}"
+  value       = module.auth_app.container_app_url
 }
 
 output "todos_app_url" {
   description = "URL del servicio de TODOs"
-  value       = "https://${azurerm_container_app.todos-app.ingress[0].fqdn}"
+  value       = module.todos_app.container_app_url
 }
 
 output "frontend_app_url" {
   description = "URL del frontend"
-  value       = "https://${azurerm_container_app.frontend-app.ingress[0].fqdn}"
+  value       = module.frontend_app.container_app_url
 }
 
-output "aut_app_url" {
-  description = "URL del auth"
-  value       = "https://${azurerm_container_app.auth-app.ingress[0].fqdn}"
+output "resource_group_name" {
+  description = "Name of the created resource group"
+  value       = module.resource_group.resource_group_name
+}
+
+output "container_environment_id" {
+  description = "ID of the container app environment"
+  value       = module.container_environment.container_app_environment_id
 }

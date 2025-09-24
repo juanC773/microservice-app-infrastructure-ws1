@@ -47,12 +47,6 @@ variable "ingress" {
   default = null
 }
 
-variable "depends_on_apps" {
-  description = "List of container apps this app depends on"
-  type        = list(any)
-  default     = []
-}
-
 variable "tags" {
   description = "Tags to apply to the container app"
   type        = map(string)

@@ -41,6 +41,4 @@ resource "azurerm_container_app" "this" {
       }
     }
   }
-
-  depends_on = var.depends_on_apps
 }
