@@ -2,14 +2,14 @@ name: "Terraform Infrastructure Pipeline"
 
 on:
   pull_request:
-    branches: [master]
+    branches: [main]
     paths:
       - "**.tf"
       - "**.tfvars"
       - ".github/workflows/terraform.yml"
 
   push:
-    branches: [master]
+    branches: [main]
     paths:
       - "**.tf"
       - "**.tfvars"
@@ -45,12 +45,6 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # Azure Login
-      - name: Azure Login
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
       # Terraform Init (backend local)
       - name: Terraform Init
         run: terraform init
@@ -82,7 +76,7 @@ jobs:
             // Obtener el output del plan
             const planOutput = execSync('terraform show -no-color tfplan', { encoding: 'utf8' });
 
-            const output = `#### Terraform Plan 
+            const output = `#### Terraform Plan 📖
 
             <details><summary>Show Plan</summary>
 
@@ -101,9 +95,9 @@ jobs:
               body: output
             });
 
-      # Terraform Apply
+      # Terraform Apply (solo en push a main)
       - name: Terraform Apply
-        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: terraform apply -auto-approve tfplan
 
       # Cleanup
