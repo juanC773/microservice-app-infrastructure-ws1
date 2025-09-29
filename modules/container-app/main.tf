@@ -38,21 +38,21 @@ resource "azurerm_container_app" "this" {
         }
       }
 
-      # Reglas de Auto Scaling basadas en CPU
-      dynamic "cpu_scale_rule" {
-        for_each = template.value.cpu_scale_rules != null ? template.value.cpu_scale_rules : []
+      # Reglas de Auto Scaling personalizadas (CPU, Memoria, etc.)
+      dynamic "custom_scale_rule" {
+        for_each = template.value.custom_scale_rules != null ? template.value.custom_scale_rules : []
         content {
-          name                     = cpu_scale_rule.value.name
-          cpu_percentage_threshold = cpu_scale_rule.value.cpu_percentage_threshold
-        }
-      }
+          name             = custom_scale_rule.value.name
+          custom_rule_type = custom_scale_rule.value.custom_rule_type
+          metadata         = custom_scale_rule.value.metadata
 
-      # Reglas de Auto Scaling basadas en Memoria
-      dynamic "memory_scale_rule" {
-        for_each = template.value.memory_scale_rules != null ? template.value.memory_scale_rules : []
-        content {
-          name                        = memory_scale_rule.value.name
-          memory_percentage_threshold = memory_scale_rule.value.memory_percentage_threshold
+          dynamic "authentication" {
+            for_each = custom_scale_rule.value.authentication != null ? [custom_scale_rule.value.authentication] : []
+            content {
+              secret_name       = authentication.value.secret_name
+              trigger_parameter = authentication.value.trigger_parameter
+            }
+          }
         }
       }
     }

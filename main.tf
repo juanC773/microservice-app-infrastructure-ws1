@@ -47,7 +47,6 @@ module "users_app" {
   container_app_environment_id = module.container_environment.container_app_environment_id
 
   template = {
-
     min_replicas = 1
     max_replicas = 10
 
@@ -76,24 +75,10 @@ module "users_app" {
       ]
     }]
 
-    # Auto scaling por requests HTTP concurrentes
     http_scale_rules = [{
       name                = "http-requests"
       concurrent_requests = 10
     }]
-
-    # Auto scaling por CPU
-    cpu_scale_rules = [{
-      name                     = "cpu-usage"
-      cpu_percentage_threshold = 75
-    }]
-
-    # Auto scaling por Memoria
-    memory_scale_rules = [{
-      name                        = "memory-usage"
-      memory_percentage_threshold = 80
-    }]
-
   }
 
   ingress = {
@@ -116,7 +101,6 @@ module "auth_app" {
   container_app_environment_id = module.container_environment.container_app_environment_id
 
   template = {
-
     min_replicas = 1
     max_replicas = 10
 
@@ -141,24 +125,10 @@ module "auth_app" {
       ]
     }]
 
-    # Auto scaling por requests HTTP concurrentes
     http_scale_rules = [{
       name                = "http-requests"
       concurrent_requests = 10
     }]
-
-    # Auto scaling por CPU
-    cpu_scale_rules = [{
-      name                     = "cpu-usage"
-      cpu_percentage_threshold = 75
-    }]
-
-    # Auto scaling por Memoria
-    memory_scale_rules = [{
-      name                        = "memory-usage"
-      memory_percentage_threshold = 80
-    }]
-
   }
 
   ingress = {
@@ -173,7 +143,6 @@ module "auth_app" {
   depends_on = [module.users_app]
 }
 
-
 # Frontend App
 module "frontend_app" {
   source = "./modules/container-app"
@@ -183,7 +152,6 @@ module "frontend_app" {
   container_app_environment_id = module.container_environment.container_app_environment_id
 
   template = {
-
     min_replicas = 1
     max_replicas = 5
 
@@ -204,22 +172,9 @@ module "frontend_app" {
       ]
     }]
 
-    # Auto scaling por requests HTTP concurrentes
     http_scale_rules = [{
       name                = "http-requests"
       concurrent_requests = 10
-    }]
-
-    # Auto scaling por CPU
-    cpu_scale_rules = [{
-      name                     = "cpu-usage"
-      cpu_percentage_threshold = 75
-    }]
-
-    # Auto scaling por Memoria
-    memory_scale_rules = [{
-      name                        = "memory-usage"
-      memory_percentage_threshold = 80
     }]
   }
 
