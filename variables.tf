@@ -73,3 +73,14 @@ variable "common_tags" {
     Owner       = "DevOps Team"
   }
 }
+
+
+
+#############################
+
+# En variables.tf
+variable "aws_todos_api_url" {
+  description = "URL temporal del TODOs API en AWS"
+  type        = string
+  default     = "http://PLACEHOLDER"
+}

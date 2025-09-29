@@ -8,11 +8,6 @@ output "auth_app_url" {
   value       = module.auth_app.container_app_url
 }
 
-output "todos_app_url" {
-  description = "URL del servicio de TODOs"
-  value       = module.todos_app.container_app_url
-}
-
 output "frontend_app_url" {
   description = "URL del frontend"
   value       = module.frontend_app.container_app_url

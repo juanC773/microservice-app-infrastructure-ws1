@@ -1,4 +1,4 @@
-# Resource Group Module
+# Resource AZURE Group Module
 module "resource_group" {
   source = "./modules/resource-group"
 
@@ -7,7 +7,7 @@ module "resource_group" {
   tags                = var.common_tags
 }
 
-# Networking Module
+# Networking AZURE Module
 module "networking" {
   source = "./modules/networking"
 
@@ -123,55 +123,6 @@ module "auth_app" {
   depends_on = [module.users_app]
 }
 
-# Todos App
-module "todos_app" {
-  source = "./modules/container-app"
-
-  app_name                     = "todos-app"
-  resource_group_name          = module.resource_group.resource_group_name
-  container_app_environment_id = module.container_environment.container_app_environment_id
-
-  template = {
-    containers = [{
-      name   = "todos-app-container"
-      image  = "juanc7773/todos-api-ws1:latest"
-      cpu    = 0.25
-      memory = "0.5Gi"
-      env_vars = [
-        {
-          name  = "TODO_API_PORT"
-          value = "8082"
-        },
-        {
-          name  = "JWT_SECRET"
-          value = "PRFT"
-        },
-        {
-          name  = "REDIS_HOST"
-          value = "redis-app"
-        },
-        {
-          name  = "REDIS_PORT"
-          value = "6379"
-        },
-        {
-          name  = "REDIS_CHANNEL"
-          value = "log_channel"
-        }
-      ]
-    }]
-  }
-
-  ingress = {
-    external_enabled   = true
-    target_port        = 8082
-    transport          = "http"
-    traffic_percentage = 100
-    latest_revision    = true
-  }
-
-  tags = var.common_tags
-}
 
 # Frontend App
 module "frontend_app" {
@@ -194,7 +145,7 @@ module "frontend_app" {
         },
         {
           name  = "TODOS_API_ADDRESS"
-          value = "https://todos-app.${module.container_environment.container_app_environment_domain}"
+          value = "https://d2lj31xy56t51f.cloudfront.net"
         }
       ]
     }]
@@ -209,5 +160,429 @@ module "frontend_app" {
   }
 
   tags       = var.common_tags
-  depends_on = [module.auth_app, module.todos_app]
+  depends_on = [module.auth_app, aws_ecs_service.todos_api]
 }
+
+
+
+
+
+# AWS infrastructure
+
+# NETWORKING
+
+resource "aws_vpc" "main_vpc" {
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_hostnames = true
+  enable_dns_support   = true
+
+  tags = {
+    Name = "main-vpc"
+  }
+}
+
+resource "aws_internet_gateway" "main_igw" {
+  vpc_id = aws_vpc.main_vpc.id
+
+  tags = {
+    Name = "main-igw"
+  }
+}
+
+resource "aws_route_table" "public_rt" {
+  vpc_id = aws_vpc.main_vpc.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.main_igw.id
+  }
+
+  tags = {
+    Name = "public-route-table"
+  }
+}
+
+resource "aws_route_table_association" "public_rta" {
+  count          = 2
+  subnet_id      = aws_subnet.public_subnet[count.index].id
+  route_table_id = aws_route_table.public_rt.id
+}
+
+resource "aws_subnet" "public_subnet" {
+  count      = 2
+  vpc_id     = aws_vpc.main_vpc.id
+  cidr_block = "10.0.${count.index + 1}.0/24"
+
+  map_public_ip_on_launch = true
+
+  tags = {
+    Name = "public-subnet-${count.index + 1}"
+  }
+
+  depends_on = [aws_internet_gateway.main_igw]
+
+}
+
+resource "aws_subnet" "private_subnet" {
+  count      = 2
+  vpc_id     = aws_vpc.main_vpc.id
+  cidr_block = "10.0.${count.index + 10}.0/24"
+
+  tags = {
+    Name = "private-subnet-${count.index + 1}"
+  }
+
+}
+
+
+
+
+
+
+# ECS Cluster (equivalente al Container Environment de Azure)
+resource "aws_ecs_cluster" "main_cluster" {
+  name = "todos-cluster"
+
+  setting {
+    name  = "containerInsights"
+    value = "enabled"
+  }
+
+  configuration {
+    execute_command_configuration {
+      logging = "OVERRIDE"
+      log_configuration {
+        cloud_watch_log_group_name = aws_cloudwatch_log_group.todos_logs.name
+      }
+    }
+  }
+}
+
+
+
+# TODOs API
+
+resource "aws_cloudwatch_log_group" "todos_logs" {
+  name              = "/ecs/todos-api"
+  retention_in_days = 7
+}
+
+resource "aws_iam_role" "ecs_task_execution" {
+  name = "ecs-task-execution-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ecs-tasks.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "ecs_task_execution_role_policy" {
+  role       = aws_iam_role.ecs_task_execution.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+
+# Task Definition para TODOs API
+resource "aws_ecs_task_definition" "todos_api" {
+  family                   = "todos-api"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = "256"
+  memory                   = "512"
+  execution_role_arn       = aws_iam_role.ecs_task_execution.arn
+
+  container_definitions = jsonencode([
+    {
+      name  = "todos-api"
+      image = "juanc7773/todos-api-ws1:latest"
+
+      portMappings = [
+        {
+          containerPort = 8082
+          protocol      = "tcp"
+        }
+      ]
+
+      environment = [
+        {
+          name  = "JWT_SECRET"
+          value = var.jwt_secret
+        },
+        {
+          name  = "TODO_API_PORT"
+          value = "8082"
+        },
+        {
+          name  = "REDIS_HOST"
+          value = aws_elasticache_cluster.redis.cache_nodes.0.address
+        },
+        {
+          name  = "REDIS_PORT"
+          value = "6379"
+        },
+        {
+          name  = "REDIS_CHANNEL"
+          value = "log_channel"
+        }
+      ]
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.todos_logs.name
+          "awslogs-region"        = "us-west-2"
+          "awslogs-stream-prefix" = "ecs"
+        }
+      }
+
+      essential = true
+    }
+  ])
+}
+
+
+# ECS Service para TODOs API
+resource "aws_ecs_service" "todos_api" {
+  name            = "todos-api"
+  cluster         = aws_ecs_cluster.main_cluster.id
+  task_definition = aws_ecs_task_definition.todos_api.arn
+  desired_count   = 2
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = aws_subnet.public_subnet[*].id
+    security_groups  = [aws_security_group.ecs_services.id]
+    assign_public_ip = true
+  }
+
+
+  # Agregar dependencias explícitas
+  depends_on = [
+    aws_internet_gateway.main_igw,
+    aws_route_table.public_rt,
+    aws_route_table_association.public_rta
+  ]
+}
+
+
+resource "aws_security_group" "ecs_services" {
+  name_prefix = "todos-ecs-"
+  vpc_id      = aws_vpc.main_vpc.id
+
+  ingress {
+    from_port   = 8082
+    to_port     = 8082
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # Permite comunicación interna entre servicios
+  ingress {
+    from_port = 0
+    to_port   = 65535
+    protocol  = "tcp"
+    self      = true
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+
+# Service Discovery Namespace (para comunicación interna) para todos api 
+resource "aws_service_discovery_private_dns_namespace" "internal" {
+  name = "todos.internal"
+  vpc  = aws_vpc.main_vpc.id
+}
+
+####################################################
+resource "aws_cloudfront_distribution" "todos_api" {
+  origin {
+    domain_name = "ec2-52-43-69-3.us-west-2.compute.amazonaws.com"
+    origin_id   = "todos-api-http"
+
+    custom_origin_config {
+      http_port              = 8082
+      https_port             = 443
+      origin_protocol_policy = "http-only"
+      origin_ssl_protocols   = ["TLSv1.2"]
+    }
+  }
+
+  enabled = true
+  comment = "CloudFront for TODOs API - Temporary HTTPS"
+
+  default_cache_behavior {
+    target_origin_id       = "todos-api-http"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods         = ["GET", "HEAD"]
+    compress               = true
+
+    forwarded_values {
+      query_string = true
+      headers      = ["*"]
+      cookies {
+        forward = "all"
+      }
+    }
+
+    min_ttl     = 0
+    default_ttl = 0
+    max_ttl     = 0
+  }
+
+  restrictions {
+    geo_restriction {
+      restriction_type = "none"
+    }
+  }
+
+  viewer_certificate {
+    cloudfront_default_certificate = true
+  }
+
+  tags = {
+    Name = "todos-api-temporary-https"
+  }
+}
+
+output "todos_api_https_url" {
+  value = "https://${aws_cloudfront_distribution.todos_api.domain_name}"
+}
+
+
+##################################
+
+
+
+
+
+# Redis como ElastiCache 
+
+resource "aws_cloudwatch_log_group" "redis_logs" {
+  name              = "/ecs/redis"
+  retention_in_days = 7
+}
+
+
+resource "aws_elasticache_subnet_group" "redis" {
+  name       = "redis-subnet-group"
+  subnet_ids = aws_subnet.private_subnet[*].id
+}
+
+resource "aws_elasticache_cluster" "redis" {
+  cluster_id           = "todos-redis"
+  engine               = "redis"
+  engine_version       = "6.2" # Compatible con Node.js 8.17.0
+  node_type            = "cache.t3.micro"
+  num_cache_nodes      = 1
+  parameter_group_name = "default.redis6.x"
+  port                 = 6379
+  subnet_group_name    = aws_elasticache_subnet_group.redis.name
+  security_group_ids   = [aws_security_group.ecs_services.id]
+
+  apply_immediately = true
+  tags = {
+    Name = "todos-redis-cache"
+  }
+}
+
+
+
+# LOG MESSAGE PROCESSOR
+
+# Log Message Processor
+
+resource "aws_cloudwatch_log_group" "log_processor_logs" {
+  name              = "/ecs/log-message-processor"
+  retention_in_days = 7
+}
+
+resource "aws_ecs_task_definition" "log_processor" {
+  family                   = "log-message-processor"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = "256"
+  memory                   = "512"
+  execution_role_arn       = aws_iam_role.ecs_task_execution.arn
+
+  container_definitions = jsonencode([
+    {
+      name  = "log-message-processor"
+      image = "juanc7773/log-message-processor:latest"
+
+      environment = [
+        {
+          name  = "REDIS_HOST"
+          value = aws_elasticache_cluster.redis.cache_nodes.0.address
+        },
+        {
+          name  = "REDIS_PORT"
+          value = "6379"
+        },
+        {
+          name  = "REDIS_CHANNEL"
+          value = "log_channel"
+        }
+      ]
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.log_processor_logs.name
+          "awslogs-region"        = "us-west-2"
+          "awslogs-stream-prefix" = "ecs"
+        }
+      }
+
+      essential = true
+    }
+  ])
+}
+
+resource "aws_ecs_service" "log_processor" {
+  name            = "log-message-processor"
+  cluster         = aws_ecs_cluster.main_cluster.id
+  task_definition = aws_ecs_task_definition.log_processor.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = aws_subnet.private_subnet[*].id
+    security_groups  = [aws_security_group.ecs_services.id]
+    assign_public_ip = false
+  }
+
+  depends_on = [aws_elasticache_cluster.redis]
+}
+
+
+
+
+
+
+# Outputs
+
+output "ecs_service_name" {
+  description = "Nombre del servicio ECS para obtener IPs"
+  value       = aws_ecs_service.todos_api.network_configuration
+}
+
+output "redis_endpoint" {
+  description = "Endpoint de Redis para configuración"
+  value       = aws_elasticache_cluster.redis.cache_nodes.0.address
+}
+
