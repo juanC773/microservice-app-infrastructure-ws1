@@ -7,7 +7,6 @@ on:
       - "**.tf"
       - "**.tfvars"
       - ".github/workflows/terraform.yml"
-
   push:
     branches: [master]
     paths:
@@ -16,23 +15,29 @@ on:
 
 env:
   TF_VERSION: "1.6.0"
+
   # Variables para autenticación con Azure
   ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
   ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
   ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
   ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-  # Mapeo explícito de tu JWT secret
+
+  # Variables para autenticación con AWS
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  AWS_REGION: us-west-2
+
+  # JWT Secret para Terraform
   TF_VAR_jwt_secret: ${{ secrets.TF_VAR_JWT_SECRET }}
 
 jobs:
   terraform:
     name: "Terraform"
     runs-on: ubuntu-latest
-
     defaults:
       run:
         shell: bash
-        working-directory: ./ # Cambia si tus .tf están en otra carpeta
+        working-directory: ./
 
     steps:
       # Checkout del código
@@ -45,7 +50,15 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # Terraform Init (backend local)
+      # Configurar AWS CLI (necesario para los comandos del script)
+      - name: Configure AWS CLI
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-west-2
+
+      # Terraform Init
       - name: Terraform Init
         run: terraform init
 
@@ -60,8 +73,7 @@ jobs:
       # Terraform Plan
       - name: Terraform Plan
         id: plan
-        run: |
-          terraform plan -out=tfplan -no-color
+        run: terraform plan -out=tfplan -no-color
         continue-on-error: false
 
       # Comentar el plan en el PR
@@ -77,7 +89,6 @@ jobs:
             const planOutput = execSync('terraform show -no-color tfplan', { encoding: 'utf8' });
 
             const output = `#### Terraform Plan 📖
-
             <details><summary>Show Plan</summary>
 
             \`\`\`terraform
@@ -95,12 +106,21 @@ jobs:
               body: output
             });
 
-      # Terraform Apply (solo en push a main)
-      - name: Terraform Apply
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      # Terraform Apply (solo en push a master) - PRIMER APPLY
+      - name: Terraform Apply (Initial)
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
         run: terraform apply -auto-approve tfplan
+
+      # Ejecutar script de deployment automatizado
+      - name: Run Deployment Script
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+        run: |
+          chmod +x deploy.sh
+          ./deploy.sh
+        env:
+          JWT_SECRET: ${{ secrets.TF_VAR_JWT_SECRET }}
 
       # Cleanup
       - name: Cleanup
         if: always()
-        run: rm -f tfplan
+        run: rm -f tfplan terraform.tfstate.backup *.bak *.bak2

@@ -47,6 +47,10 @@ module "users_app" {
   container_app_environment_id = module.container_environment.container_app_environment_id
 
   template = {
+
+    min_replicas = 1
+    max_replicas = 10
+
     containers = [{
       name   = "users-app-container"
       image  = "torres05/users-api-ws1:latest"
@@ -64,9 +68,32 @@ module "users_app" {
         {
           name  = "JWT_SECRET"
           value = var.jwt_secret
+        },
+        {
+          name  = "ZIPKIN_URL"
+          value = "http://34.222.102.63:9411/api/v2/spans"
         }
       ]
     }]
+
+    # Auto scaling por requests HTTP concurrentes
+    http_scale_rules = [{
+      name                = "http-requests"
+      concurrent_requests = 10
+    }]
+
+    # Auto scaling por CPU
+    cpu_scale_rules = [{
+      name                     = "cpu-usage"
+      cpu_percentage_threshold = 75
+    }]
+
+    # Auto scaling por Memoria
+    memory_scale_rules = [{
+      name                        = "memory-usage"
+      memory_percentage_threshold = 80
+    }]
+
   }
 
   ingress = {
@@ -89,6 +116,10 @@ module "auth_app" {
   container_app_environment_id = module.container_environment.container_app_environment_id
 
   template = {
+
+    min_replicas = 1
+    max_replicas = 10
+
     containers = [{
       name   = "auth-app-container"
       image  = "torres05/auth-api-ws1:latest"
@@ -109,6 +140,25 @@ module "auth_app" {
         }
       ]
     }]
+
+    # Auto scaling por requests HTTP concurrentes
+    http_scale_rules = [{
+      name                = "http-requests"
+      concurrent_requests = 10
+    }]
+
+    # Auto scaling por CPU
+    cpu_scale_rules = [{
+      name                     = "cpu-usage"
+      cpu_percentage_threshold = 75
+    }]
+
+    # Auto scaling por Memoria
+    memory_scale_rules = [{
+      name                        = "memory-usage"
+      memory_percentage_threshold = 80
+    }]
+
   }
 
   ingress = {
@@ -133,6 +183,10 @@ module "frontend_app" {
   container_app_environment_id = module.container_environment.container_app_environment_id
 
   template = {
+
+    min_replicas = 1
+    max_replicas = 5
+
     containers = [{
       name   = "frontend-app-container"
       image  = "juanc7773/frontend-ws1:latest"
@@ -145,9 +199,27 @@ module "frontend_app" {
         },
         {
           name  = "TODOS_API_ADDRESS"
-          value = "https://d2lj31xy56t51f.cloudfront.net"
+          value = "https://${aws_cloudfront_distribution.todos_api.domain_name}"
         }
       ]
+    }]
+
+    # Auto scaling por requests HTTP concurrentes
+    http_scale_rules = [{
+      name                = "http-requests"
+      concurrent_requests = 10
+    }]
+
+    # Auto scaling por CPU
+    cpu_scale_rules = [{
+      name                     = "cpu-usage"
+      cpu_percentage_threshold = 75
+    }]
+
+    # Auto scaling por Memoria
+    memory_scale_rules = [{
+      name                        = "memory-usage"
+      memory_percentage_threshold = 80
     }]
   }
 
@@ -331,6 +403,10 @@ resource "aws_ecs_task_definition" "todos_api" {
         {
           name  = "REDIS_CHANNEL"
           value = "log_channel"
+        },
+        {
+          name  = "ZIPKIN_URL"
+          value = "http://34.222.102.63:9411/api/v2/spans"
         }
       ]
 
@@ -410,7 +486,7 @@ resource "aws_service_discovery_private_dns_namespace" "internal" {
 ####################################################
 resource "aws_cloudfront_distribution" "todos_api" {
   origin {
-    domain_name = "ec2-52-43-69-3.us-west-2.compute.amazonaws.com"
+    domain_name = "ec2-52-12-100-10.us-west-2.compute.amazonaws.com"
     origin_id   = "todos-api-http"
 
     custom_origin_config {
@@ -536,6 +612,10 @@ resource "aws_ecs_task_definition" "log_processor" {
         {
           name  = "REDIS_CHANNEL"
           value = "log_channel"
+        },
+        {
+          name  = "ZIPKIN_URL"
+          value = "http://34.222.102.63:9411/api/v2/spans"
         }
       ]
 
@@ -574,15 +654,158 @@ resource "aws_ecs_service" "log_processor" {
 
 
 
-# Outputs
+# ZIPKIN
 
-output "ecs_service_name" {
-  description = "Nombre del servicio ECS para obtener IPs"
-  value       = aws_ecs_service.todos_api.network_configuration
+# CloudWatch Log Group para Zipkin
+resource "aws_cloudwatch_log_group" "zipkin_logs" {
+  name              = "/ecs/zipkin"
+  retention_in_days = 7
+
+  tags = {
+    Name = "zipkin-logs"
+  }
 }
 
-output "redis_endpoint" {
-  description = "Endpoint de Redis para configuración"
-  value       = aws_elasticache_cluster.redis.cache_nodes.0.address
+# Task Definition para Zipkin
+resource "aws_ecs_task_definition" "zipkin" {
+  family                   = "zipkin"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = "512"
+  memory                   = "1024"
+  execution_role_arn       = aws_iam_role.ecs_task_execution.arn
+
+  container_definitions = jsonencode([
+    {
+      name  = "zipkin"
+      image = "openzipkin/zipkin:2.23"
+
+      portMappings = [
+        {
+          containerPort = 9411
+          protocol      = "tcp"
+        }
+      ]
+
+      environment = [
+        {
+          name  = "STORAGE_TYPE"
+          value = "mem"
+        }
+      ]
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.zipkin_logs.name
+          "awslogs-region"        = "us-west-2"
+          "awslogs-stream-prefix" = "ecs"
+        }
+      }
+
+      essential = true
+
+      healthCheck = {
+        command     = ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:9411/health || exit 1"]
+        interval    = 30
+        timeout     = 5
+        retries     = 3
+        startPeriod = 60
+      }
+    }
+  ])
 }
+
+resource "aws_security_group" "zipkin" {
+  name_prefix = "zipkin-"
+  description = "Security group for Zipkin service"
+  vpc_id      = aws_vpc.main_vpc.id
+
+  # Permitir tráfico desde servicios internos
+  ingress {
+    from_port       = 9411
+    to_port         = 9411
+    protocol        = "tcp"
+    security_groups = [aws_security_group.ecs_services.id]
+    description     = "Allow internal ECS services to send traces"
+  }
+
+  ingress {
+    from_port   = 9411
+    to_port     = 9411
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Allow Azure services and UI access"
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "zipkin-sg"
+  }
+}
+
+# ECS Service para Zipkin
+resource "aws_ecs_service" "zipkin" {
+  name            = "zipkin"
+  cluster         = aws_ecs_cluster.main_cluster.id
+  task_definition = aws_ecs_task_definition.zipkin.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = aws_subnet.public_subnet[*].id
+    security_groups  = [aws_security_group.zipkin.id]
+    assign_public_ip = true
+  }
+
+  service_registries {
+    registry_arn = aws_service_discovery_service.zipkin.arn
+  }
+
+  depends_on = [
+    aws_internet_gateway.main_igw,
+    aws_route_table.public_rt,
+    aws_route_table_association.public_rta
+  ]
+
+  tags = {
+    Name = "zipkin-service"
+  }
+}
+
+resource "aws_service_discovery_service" "zipkin" {
+  name = "zipkin"
+
+  dns_config {
+    namespace_id = aws_service_discovery_private_dns_namespace.internal.id
+
+    dns_records {
+      ttl  = 10
+      type = "A"
+    }
+
+    routing_policy = "MULTIVALUE"
+  }
+
+  health_check_custom_config {
+    failure_threshold = 1
+  }
+}
+
+# ============================================
+# OUTPUTS para facilitar la configuración
+# ============================================
+
+output "zipkin_service_discovery_endpoint" {
+  description = "Endpoint interno de Zipkin para servicios en AWS"
+  value       = "http://zipkin.todos.internal:9411"
+}
+
+
 

@@ -8,6 +8,9 @@ resource "azurerm_container_app" "this" {
   dynamic "template" {
     for_each = [var.template]
     content {
+      min_replicas = template.value.min_replicas
+      max_replicas = template.value.max_replicas
+
       dynamic "container" {
         for_each = template.value.containers
         content {
@@ -23,6 +26,33 @@ resource "azurerm_container_app" "this" {
               value = env.value.value
             }
           }
+        }
+      }
+
+      # Reglas de Auto Scaling basadas en HTTP
+      dynamic "http_scale_rule" {
+        for_each = template.value.http_scale_rules != null ? template.value.http_scale_rules : []
+        content {
+          name                = http_scale_rule.value.name
+          concurrent_requests = http_scale_rule.value.concurrent_requests
+        }
+      }
+
+      # Reglas de Auto Scaling basadas en CPU
+      dynamic "cpu_scale_rule" {
+        for_each = template.value.cpu_scale_rules != null ? template.value.cpu_scale_rules : []
+        content {
+          name                     = cpu_scale_rule.value.name
+          cpu_percentage_threshold = cpu_scale_rule.value.cpu_percentage_threshold
+        }
+      }
+
+      # Reglas de Auto Scaling basadas en Memoria
+      dynamic "memory_scale_rule" {
+        for_each = template.value.memory_scale_rules != null ? template.value.memory_scale_rules : []
+        content {
+          name                        = memory_scale_rule.value.name
+          memory_percentage_threshold = memory_scale_rule.value.memory_percentage_threshold
         }
       }
     }
