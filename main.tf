@@ -67,10 +67,6 @@ module "users_app" {
         {
           name  = "JWT_SECRET"
           value = var.jwt_secret
-        },
-        {
-          name  = "ZIPKIN_URL"
-          value = "http://34.222.102.63:9411/api/v2/spans"
         }
       ]
     }]
@@ -121,6 +117,10 @@ module "auth_app" {
         {
           name  = "USERS_API_ADDRESS"
           value = "http://users-app"
+        },
+        {
+          name  = "ZIPKIN_URL"
+          value = "http://34.222.102.63:9411/api/v2/spans"
         }
       ]
     }]
