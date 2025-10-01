@@ -22,6 +22,9 @@ variable "revision_mode" {
 variable "template" {
   description = "Container template configuration"
   type = object({
+    min_replicas = optional(number, 1)
+    max_replicas = optional(number, 10)
+
     containers = list(object({
       name   = string
       image  = string
@@ -32,6 +35,23 @@ variable "template" {
         value = string
       }))
     }))
+
+    # Reglas de auto scaling HTTP
+    http_scale_rules = optional(list(object({
+      name                = string
+      concurrent_requests = number
+    })), [])
+
+    # Reglas de auto scaling personalizadas (CPU, Memoria, Azure Service Bus, etc.)
+    custom_scale_rules = optional(list(object({
+      name             = string
+      custom_rule_type = string
+      metadata         = map(string)
+      authentication = optional(object({
+        secret_name       = string
+        trigger_parameter = string
+      }))
+    })), [])
   })
 }
 

@@ -8,11 +8,6 @@ output "auth_app_url" {
   value       = module.auth_app.container_app_url
 }
 
-output "todos_app_url" {
-  description = "URL del servicio de TODOs"
-  value       = module.todos_app.container_app_url
-}
-
 output "frontend_app_url" {
   description = "URL del frontend"
   value       = module.frontend_app.container_app_url
@@ -26,4 +21,14 @@ output "resource_group_name" {
 output "container_environment_id" {
   description = "ID of the container app environment"
   value       = module.container_environment.container_app_environment_id
+}
+
+output "ecs_service_name" {
+  description = "Nombre del servicio ECS para obtener IPs"
+  value       = aws_ecs_service.todos_api.network_configuration
+}
+
+output "redis_endpoint" {
+  description = "Endpoint de Redis para configuración"
+  value       = aws_elasticache_cluster.redis.cache_nodes.0.address
 }
