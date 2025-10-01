@@ -120,7 +120,7 @@ module "auth_app" {
         },
         {
           name  = "ZIPKIN_URL"
-          value = "http://34.222.102.63:9411/api/v2/spans"
+          value = "http://${aws_lb.zipkin.dns_name}:9411/api/v2/spans"
         }
       ]
     }]
@@ -167,7 +167,7 @@ module "frontend_app" {
         },
         {
           name  = "TODOS_API_ADDRESS"
-          value = "https://${aws_cloudfront_distribution.todos_api.domain_name}"
+          value = "https://api.torres-05.com"
         }
       ]
     }]
@@ -235,15 +235,21 @@ resource "aws_route_table_association" "public_rta" {
   route_table_id = aws_route_table.public_rt.id
 }
 
+data "aws_availability_zones" "available" {
+  state = "available"
+}
+
 resource "aws_subnet" "public_subnet" {
-  count      = 2
-  vpc_id     = aws_vpc.main_vpc.id
-  cidr_block = "10.0.${count.index + 1}.0/24"
+  count             = 2
+  vpc_id            = aws_vpc.main_vpc.id
+  cidr_block        = "10.0.${count.index + 1}.0/24"
+  availability_zone = data.aws_availability_zones.available.names[count.index]
 
   map_public_ip_on_launch = true
 
   tags = {
     Name = "public-subnet-${count.index + 1}"
+    AZ   = data.aws_availability_zones.available.names[count.index]
   }
 
   depends_on = [aws_internet_gateway.main_igw]
@@ -251,12 +257,14 @@ resource "aws_subnet" "public_subnet" {
 }
 
 resource "aws_subnet" "private_subnet" {
-  count      = 2
-  vpc_id     = aws_vpc.main_vpc.id
-  cidr_block = "10.0.${count.index + 10}.0/24"
+  count             = 2
+  vpc_id            = aws_vpc.main_vpc.id
+  cidr_block        = "10.0.${count.index + 10}.0/24"
+  availability_zone = data.aws_availability_zones.available.names[count.index]
 
   tags = {
     Name = "private-subnet-${count.index + 1}"
+    AZ   = data.aws_availability_zones.available.names[count.index]
   }
 
 }
@@ -284,6 +292,133 @@ resource "aws_ecs_cluster" "main_cluster" {
     }
   }
 }
+
+
+
+
+resource "aws_security_group" "alb" {
+  name_prefix = "todos-alb-"
+  description = "Security group for Application Load Balancer"
+  vpc_id      = aws_vpc.main_vpc.id
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Allow HTTP from anywhere"
+  }
+
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Allow HTTPS from anywhere"
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "alb-security-group"
+  }
+}
+
+resource "aws_lb" "todos_api" {
+  name               = "todos-api-alb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.alb.id]
+  subnets            = aws_subnet.public_subnet[*].id
+
+  enable_deletion_protection = false
+
+  tags = {
+    Name = "todos-api-alb"
+  }
+}
+
+# Target Group para TODOs API
+resource "aws_lb_target_group" "todos_api" {
+  name        = "todos-api-tg"
+  port        = 8082
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main_vpc.id
+  target_type = "ip"
+
+  health_check {
+    enabled             = true
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+    timeout             = 5
+    interval            = 30
+    path                = "/health"
+    matcher             = "200"
+  }
+
+  deregistration_delay = 30
+
+  tags = {
+    Name = "todos-api-target-group"
+  }
+}
+
+# Certificado SSL en ACM para api.torres-05.com
+resource "aws_acm_certificate" "todos_api" {
+  domain_name       = "api.torres-05.com"
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = {
+    Name = "todos-api-certificate"
+  }
+}
+
+# Listener HTTP (puerto 80)
+resource "aws_lb_listener" "todos_api_http" {
+  load_balancer_arn = aws_lb.todos_api.arn
+  port              = "80"
+  protocol          = "HTTP"
+
+  default_action {
+    type = "redirect"
+
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+}
+
+resource "aws_lb_listener" "todos_api_https" {
+  load_balancer_arn = aws_lb.todos_api.arn
+  port              = "443"
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  certificate_arn   = aws_acm_certificate.todos_api.arn
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.todos_api.arn
+  }
+
+  depends_on = [aws_acm_certificate_validation.todos_api]
+}
+
+resource "aws_acm_certificate_validation" "todos_api" {
+  certificate_arn = aws_acm_certificate.todos_api.arn
+}
+
+
 
 
 
@@ -361,7 +496,7 @@ resource "aws_ecs_task_definition" "todos_api" {
         },
         {
           name  = "ZIPKIN_URL"
-          value = "http://34.222.102.63:9411/api/v2/spans"
+          value = "http://${aws_lb.zipkin.dns_name}:9411/api/v2/spans"
         }
       ]
 
@@ -394,14 +529,22 @@ resource "aws_ecs_service" "todos_api" {
     assign_public_ip = true
   }
 
+  load_balancer {
+    target_group_arn = aws_lb_target_group.todos_api.arn
+    container_name   = "todos-api"
+    container_port   = 8082
+  }
 
   # Agregar dependencias explícitas
   depends_on = [
+    aws_lb_listener.todos_api_http,
     aws_internet_gateway.main_igw,
     aws_route_table.public_rt,
     aws_route_table_association.public_rta
   ]
 }
+
+
 
 
 resource "aws_security_group" "ecs_services" {
@@ -437,68 +580,6 @@ resource "aws_service_discovery_private_dns_namespace" "internal" {
   name = "todos.internal"
   vpc  = aws_vpc.main_vpc.id
 }
-
-####################################################
-resource "aws_cloudfront_distribution" "todos_api" {
-  origin {
-    domain_name = "ec2-52-12-100-10.us-west-2.compute.amazonaws.com"
-    origin_id   = "todos-api-http"
-
-    custom_origin_config {
-      http_port              = 8082
-      https_port             = 443
-      origin_protocol_policy = "http-only"
-      origin_ssl_protocols   = ["TLSv1.2"]
-    }
-  }
-
-  enabled = true
-  comment = "CloudFront for TODOs API - Temporary HTTPS"
-
-  default_cache_behavior {
-    target_origin_id       = "todos-api-http"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
-    cached_methods         = ["GET", "HEAD"]
-    compress               = true
-
-    forwarded_values {
-      query_string = true
-      headers      = ["*"]
-      cookies {
-        forward = "all"
-      }
-    }
-
-    min_ttl     = 0
-    default_ttl = 0
-    max_ttl     = 0
-  }
-
-  restrictions {
-    geo_restriction {
-      restriction_type = "none"
-    }
-  }
-
-  viewer_certificate {
-    cloudfront_default_certificate = true
-  }
-
-  tags = {
-    Name = "todos-api-temporary-https"
-  }
-}
-
-output "todos_api_https_url" {
-  value = "https://${aws_cloudfront_distribution.todos_api.domain_name}"
-}
-
-
-##################################
-
-
-
 
 
 # Redis como ElastiCache 
@@ -570,7 +651,7 @@ resource "aws_ecs_task_definition" "log_processor" {
         },
         {
           name  = "ZIPKIN_URL"
-          value = "http://34.222.102.63:9411/api/v2/spans"
+          value = "http://${aws_lb.zipkin.dns_name}:9411/api/v2/spans"
         }
       ]
 
@@ -633,7 +714,7 @@ resource "aws_ecs_task_definition" "zipkin" {
   container_definitions = jsonencode([
     {
       name  = "zipkin"
-      image = "openzipkin/zipkin:2.23"
+      image = "openzipkin/zipkin"
 
       portMappings = [
         {
@@ -719,11 +800,18 @@ resource "aws_ecs_service" "zipkin" {
     assign_public_ip = true
   }
 
+  load_balancer {
+    target_group_arn = aws_lb_target_group.zipkin.arn
+    container_name   = "zipkin"
+    container_port   = 9411
+  }
+
   service_registries {
     registry_arn = aws_service_discovery_service.zipkin.arn
   }
 
   depends_on = [
+    aws_lb_listener.zipkin,
     aws_internet_gateway.main_igw,
     aws_route_table.public_rt,
     aws_route_table_association.public_rta
@@ -753,14 +841,132 @@ resource "aws_service_discovery_service" "zipkin" {
   }
 }
 
-# ============================================
-# OUTPUTS para facilitar la configuración
-# ============================================
 
-output "zipkin_service_discovery_endpoint" {
-  description = "Endpoint interno de Zipkin para servicios en AWS"
-  value       = "http://zipkin.todos.internal:9411"
+resource "aws_security_group" "alb_zipkin" {
+  name_prefix = "zipkin-alb-"
+  description = "Security group for Zipkin ALB"
+  vpc_id      = aws_vpc.main_vpc.id
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Allow HTTP from anywhere"
+  }
+
+  ingress {
+    from_port   = 9411
+    to_port     = 9411
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Allow Zipkin port from anywhere"
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "zipkin-alb-sg"
+  }
+}
+
+# Load Balancer para Zipkin
+resource "aws_lb" "zipkin" {
+  name               = "zipkin-alb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.alb_zipkin.id]
+  subnets            = aws_subnet.public_subnet[*].id
+
+  enable_deletion_protection = false
+
+  tags = {
+    Name = "zipkin-alb"
+  }
+}
+
+# Target Group para Zipkin
+resource "aws_lb_target_group" "zipkin" {
+  name        = "zipkin-tg"
+  port        = 9411
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main_vpc.id
+  target_type = "ip"
+
+  health_check {
+    enabled             = true
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+    timeout             = 5
+    interval            = 30
+    path                = "/health"
+    matcher             = "200"
+  }
+
+  deregistration_delay = 30
+
+  tags = {
+    Name = "zipkin-target-group"
+  }
+}
+
+# Listener para Zipkin
+resource "aws_lb_listener" "zipkin" {
+  load_balancer_arn = aws_lb.zipkin.arn
+  port              = "9411"
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.zipkin.arn
+  }
 }
 
 
+# OUTPUTS
+output "todos_api_load_balancer_dns" {
+  description = "DNS name of the TODOs API Load Balancer"
+  value       = aws_lb.todos_api.dns_name
+}
 
+output "todos_api_url" {
+  description = "URL to access TODOs API"
+  value       = "http://${aws_lb.todos_api.dns_name}"
+}
+
+output "zipkin_load_balancer_dns" {
+  description = "DNS name of the Zipkin Load Balancer"
+  value       = aws_lb.zipkin.dns_name
+}
+
+output "zipkin_url" {
+  description = "URL to access Zipkin UI"
+  value       = "http://${aws_lb.zipkin.dns_name}:9411"
+}
+
+output "load_balancer_arn" {
+  description = "ARN of the TODOs API Load Balancer"
+  value       = aws_lb.todos_api.arn
+}
+
+output "target_group_arn" {
+  description = "ARN of the TODOs API Target Group"
+  value       = aws_lb_target_group.todos_api.arn
+}
+
+
+output "certificate_validation_records" {
+  description = "DNS records needed to validate the certificate"
+  value = {
+    for dvo in aws_acm_certificate.todos_api.domain_validation_options : dvo.domain_name => {
+      name  = dvo.resource_record_name
+      type  = dvo.resource_record_type
+      value = dvo.resource_record_value
+    }
+  }
+}
